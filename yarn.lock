@@ -2255,10 +2255,10 @@ vscode-debugprotocol@1.51.0:
   resolved "https://registry.yarnpkg.com/vscode-debugprotocol/-/vscode-debugprotocol-1.51.0.tgz#c03168dac778b6c24ce17b3511cb61e89c11b2df"
   integrity sha512-dzKWTMMyebIMPF1VYMuuQj7gGFq7guR8AFya0mKacu+ayptJfaRuM0mdHCqiOth4FnRP8mPhEroFPx6Ift8wHA==
 
-wait-port@^0.3.0:
-  version "0.3.1"
-  resolved "https://registry.yarnpkg.com/wait-port/-/wait-port-0.3.1.tgz#d4309654b88a82333459eb264bc278e0be998d37"
-  integrity sha512-o8kW8xjslQDrbazXgXeDFt53l128J9xBAiG4aBmr9DcQA05jt0VBf2TE2vc9rxctgZjIuWpiXuO0gIYFo3pZSA==
+wait-port@^1.0.3:
+  version "1.0.3"
+  resolved "https://registry.yarnpkg.com/wait-port/-/wait-port-1.0.3.tgz#17ec4b48fbda5cec27c4875ffa85c8c7ca807654"
+  integrity sha512-vILozNLF4VNJ8H9AzWvqH30wYRP6Ha/owMjuXPCmdDig8Qlr12rvIgU2J2V1nB2TlEV80IA8MrPJdi0BGIeCUg==
   dependencies:
     chalk "^4.1.2"
     commander "^9.3.0"
