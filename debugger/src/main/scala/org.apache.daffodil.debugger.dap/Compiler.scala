@@ -23,18 +23,38 @@ import java.nio.file.Path
 import org.apache.daffodil.sapi._
 
 trait Compiler {
-  def compile(schema: Path, tunables: Map[String, String]): IO[DataProcessor]
+  def compile(
+      schema: Path,
+      rootName: String,
+      rootNamespace: String,
+      tunables: Map[String, String]
+  ): IO[DataProcessor]
 }
 
 object Compiler {
   def apply(): Compiler =
     new Compiler {
-      def compile(schema: Path, tunables: Map[String, String]): IO[DataProcessor] =
+      def compile(
+          schema: Path,
+          rootName: String,
+          rootNamespace: String,
+          tunables: Map[String, String]
+      ): IO[DataProcessor] =
         IO.blocking(
           Daffodil
             .compiler()
             .withTunables(tunables)
-            .compileFile(schema.toFile())
+            .compileFile(
+              schema.toFile(),
+              rootName match {
+                case "" => None
+                case s  => Some(s)
+              },
+              rootNamespace match {
+                case "" => None
+                case s  => Some(s)
+              }
+            )
         ).ensureOr(pf => CompilationFailed(pf.getDiagnostics))(!_.isError)
           .map(_.onPath("/"))
     }

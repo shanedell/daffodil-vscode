@@ -121,6 +121,8 @@ suite('Daffodil Debugger', () => {
         type: 'dfdl',
         schema: TEST_SCHEMA,
         data: DATA,
+        rootName: '',
+        rootNamespace: '',
         debugServer: 4711,
         infosetFormat: 'xml',
         infosetOutput: {
@@ -147,6 +149,8 @@ suite('Daffodil Debugger', () => {
         type: 'dfdl',
         schema: TEST_SCHEMA,
         data: DATA,
+        rootName: '',
+        rootNamespace: '',
         debugServer: 4712,
         infosetFormat: 'json',
         infosetOutput: {

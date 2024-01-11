@@ -340,6 +340,16 @@
                 "description": "Absolute path to the input data file.",
                 "default": "${command:AskForDataName}"
               },
+              "rootName": {
+                "type": "string",
+                "description": "Name of root element.",
+                "default": ""
+              },
+              "rootNamespace": {
+                "type": "string",
+                "description": "String of namespace of the root element.",
+                "default": ""
+              },
               "infosetFormat": {
                 "type": "string",
                 "description": "Infoset format type (xml/json)",
@@ -451,8 +461,10 @@
             "request": "launch",
             "name": "Ask for file name",
             "schema": "${command:AskForSchemaName}",
-            "stopOnEntry": true,
             "data": "${command:AskForDataName}",
+            "rootName": "",
+            "rootNamespace": "",
+            "stopOnEntry": true,
             "infosetFormat": "xml",
             "infosetOutput": {
               "type": "file",
@@ -495,8 +507,10 @@
               "request": "launch",
               "name": "Ask for file name",
               "schema": "^\"\\${command:AskForSchemaName}\"",
-              "stopOnEntry": true,
               "data": "^\"\\${command:AskForDataName}\"",
+              "rootName": "",
+              "rootNamespace": "",
+              "stopOnEntry": true,
               "infosetFormat": "xml",
               "infosetOutput": {
                 "type": "file",
@@ -558,6 +572,16 @@
             "type": "string",
             "description": "Absolute path to the input data file.",
             "default": "${command:AskForDataName}"
+          },
+          "rootName": {
+            "type": "string",
+            "description": "Name of root element.",
+            "default": ""
+          },
+          "rootNamespace": {
+            "type": "string",
+            "description": "String of namespace of the root element.",
+            "default": ""
           },
           "tdmlConfig": {
             "type": "object",

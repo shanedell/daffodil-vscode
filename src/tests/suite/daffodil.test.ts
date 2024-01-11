@@ -103,6 +103,8 @@ suite('Daffodfil', () => {
         stopOnEntry: true,
         infosetFormat: 'json',
         infosetOutput: infosetOutput,
+        rootName: '',
+        rootNamespace: '',
       }
 
       assert.strictEqual('/path/to/schema.xsd.xml', launchArgs.schemaPath)
@@ -110,6 +112,8 @@ suite('Daffodfil', () => {
       assert.strictEqual(true, launchArgs.stopOnEntry)
       assert.strictEqual('json', launchArgs.infosetFormat)
       assert.strictEqual(infosetOutput, launchArgs.infosetOutput)
+      assert.strictEqual('', launchArgs.rootName)
+      assert.strictEqual('', launchArgs.rootNamespace)
     })
 
     test('ConfigEvent functions properly', () => {
@@ -129,6 +133,8 @@ suite('Daffodfil', () => {
         stopOnEntry: true,
         infosetFormat: 'xml',
         infosetOutput: infosetOutput,
+        rootName: '',
+        rootNamespace: '',
       }
 
       let configEvent: daffodil.ConfigEvent = {

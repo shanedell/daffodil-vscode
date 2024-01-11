@@ -44,6 +44,8 @@ export interface LaunchArgs {
   stopOnEntry: boolean
   infosetFormat: string
   infosetOutput: InfosetOutput
+  rootName: string
+  rootNamespace: string
 }
 
 export interface InfosetOutput {

@@ -115,6 +115,8 @@ function createDebugRunFileConfigs(
           type: 'dfdl',
           schema: targetResource.fsPath,
           data: false,
+          rootName: '',
+          rootNamespace: '',
           debugServer: false,
           infosetFormat: 'xml',
           infosetOutput: {
@@ -299,6 +301,8 @@ export function activateDaffodilDebug(
                 type: 'dfdl',
                 schema: '${file}',
                 data: false,
+                rootName: '',
+                rootNamespace: '',
                 debugServer: false,
                 infosetFormat: 'xml',
                 infosetOutput: {
@@ -323,6 +327,8 @@ export function activateDaffodilDebug(
               type: 'dfdl',
               schema: '${file}',
               data: false,
+              rootName: '',
+              rootNamespace: '',
               debugServer: false,
               infosetFormat: 'xml',
               infosetOutput: {

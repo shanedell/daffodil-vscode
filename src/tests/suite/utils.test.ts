@@ -30,6 +30,8 @@ suite('Utils Test Suite', () => {
     type: 'dfdl',
     schema: '${command:AskForSchemaName}',
     data: '${command:AskForDataName}',
+    rootName: '',
+    rootNamespace: '',
     debugServer: 4711,
     infosetFormat: 'xml',
     infosetOutput: {

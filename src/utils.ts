@@ -94,6 +94,8 @@ export function getConfig(jsonArgs: object): vscode.DebugConfiguration {
   const defaultValues = {
     schema: defaultConf.get('schema', '${command:AskForSchemaName}'),
     data: defaultConf.get('data', '${command:AskForDataName}'),
+    rootName: defaultConf.get('rootName', ''),
+    rootNamespace: defaultConf.get('rootNamespace', ''),
     debugServer: defaultConf.get('debugServer', 4711),
     infosetFormat: 'xml',
     infosetOutput: defaultConf.get('infosetOutput', {

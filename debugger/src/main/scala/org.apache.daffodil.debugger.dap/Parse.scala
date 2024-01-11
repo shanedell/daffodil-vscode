@@ -74,12 +74,14 @@ object Parse {
       data: InputStream,
       debugger: Debugger,
       infosetFormat: String,
+      rootName: String,
+      rootNamespace: String,
       variables: Map[String, String],
       tunables: Map[String, String]
   ): IO[Parse] =
     for {
       dp <- Compiler()
-        .compile(schema, tunables)
+        .compile(schema, rootName, rootNamespace, tunables)
         .map(p =>
           p.withDebugger(debugger)
             .withDebugging(true)
@@ -204,6 +206,8 @@ object Parse {
           stopOnEntry: Boolean,
           infosetFormat: String,
           infosetOutput: LaunchArgs.InfosetOutput,
+          rootName: String,
+          rootNamespace: String,
           variables: Map[String, String],
           tunables: Map[String, String]
       ) extends Arguments
@@ -232,6 +236,8 @@ object Parse {
             name: String,
             description: String,
             path: String,
+            rootName: String,
+            rootNamespace: String,
             variables: Map[String, String],
             tunables: Map[String, String]
         ) extends TDMLConfig
@@ -245,6 +251,8 @@ object Parse {
             name: String,
             description: String,
             path: String,
+            rootName: String,
+            rootNamespace: String,
             variables: Map[String, String],
             tunables: Map[String, String]
         ) extends TDMLConfig
@@ -256,6 +264,8 @@ object Parse {
             name: String,
             description: String,
             path: String,
+            rootName: String,
+            rootNamespace: String,
             variables: Map[String, String],
             tunables: Map[String, String]
         ) extends TDMLConfig
@@ -278,6 +288,8 @@ object Parse {
           parseStopOnEntry(arguments),
           parseInfosetFormat(arguments),
           parseInfosetOutput(arguments),
+          parseRootName(arguments),
+          parseRootNamespace(arguments),
           parseVariables(arguments),
           parseTunables(arguments)
         ).parMapN(LaunchArgs.Manual.apply)
@@ -307,6 +319,8 @@ object Parse {
             parseStopOnEntry(arguments),
             parseInfosetFormat(arguments),
             parseInfosetOutput(arguments),
+            parseRootName(arguments),
+            parseRootNamespace(arguments),
             parseVariables(arguments),
             parseTunables(arguments)
           ).parMapN(LaunchArgs.Manual.apply)
@@ -322,6 +336,8 @@ object Parse {
                 parseTDMLName(tdmlConfig),
                 parseTDMLDescription(tdmlConfig),
                 parseTDMLPath(tdmlConfig),
+                parseRootName(arguments),
+                parseRootNamespace(arguments),
                 parseVariables(arguments),
                 parseTunables(arguments)
               ).parMapN(LaunchArgs.TDMLConfig.Generate.apply)
@@ -335,6 +351,8 @@ object Parse {
                 parseTDMLName(tdmlConfig),
                 parseTDMLDescription(tdmlConfig),
                 parseTDMLPath(tdmlConfig),
+                parseRootName(arguments),
+                parseRootNamespace(arguments),
                 parseVariables(arguments),
                 parseTunables(arguments)
               ).parMapN(LaunchArgs.TDMLConfig.Append.apply)
@@ -346,6 +364,8 @@ object Parse {
                 parseTDMLName(tdmlConfig),
                 parseTDMLDescription(tdmlConfig),
                 parseTDMLPath(tdmlConfig),
+                parseRootName(arguments),
+                parseRootNamespace(arguments),
                 parseVariables(arguments),
                 parseTunables(arguments)
               ).parMapN(LaunchArgs.TDMLConfig.Execute.apply)
@@ -472,6 +492,28 @@ object Parse {
           }
       }
 
+    // Parse the root name field from the launch config
+    // Defaults to None
+    //
+    // arguments: Launch config
+    def parseRootName(arguments: JsonObject) =
+      Option(arguments.getAsJsonPrimitive("rootName"))
+        .map(_.getAsString())
+        .getOrElse("")
+        .asRight[String]
+        .toEitherNel
+
+    // Parse the root namespae field from the launch config
+    // Defaults to None
+    //
+    // arguments: Launch config
+    def parseRootNamespace(arguments: JsonObject) =
+      Option(arguments.getAsJsonPrimitive("rootNamespace"))
+        .map(_.getAsString())
+        .getOrElse("")
+        .asRight[String]
+        .toEitherNel
+
     // Parse the variables object from the launch config
     //
     // arguments: Launch config
@@ -572,13 +614,25 @@ object Parse {
               name,
               description,
               tdmlPath,
+              rootName,
+              rootNamespace,
               variables,
               tunables
             ) =>
         // Create a LaunchArgs.Manual, run the debugee with it, and then generate the TDML file
         debugee(
           Debugee.LaunchArgs
-            .Manual(schemaPath, dataPath, stopOnEntry, infosetFormat, infosetOutput, variables, tunables)
+            .Manual(
+              schemaPath,
+              dataPath,
+              stopOnEntry,
+              infosetFormat,
+              infosetOutput,
+              rootName,
+              rootNamespace,
+              variables,
+              tunables
+            )
         ).onFinalize(
           infosetOutput match {
             case Debugee.LaunchArgs.InfosetOutput.File(path) =>
@@ -601,13 +655,25 @@ object Parse {
               name,
               description,
               tdmlPath,
+              rootName,
+              rootNamespace,
               variables,
               tunables
             ) =>
         // Create a LaunchArgs.Manual, run the debugee with it, and then append to the existing TDML file
         debugee(
           Debugee.LaunchArgs
-            .Manual(schemaPath, dataPath, stopOnEntry, infosetFormat, infosetOutput, variables, tunables)
+            .Manual(
+              schemaPath,
+              dataPath,
+              stopOnEntry,
+              infosetFormat,
+              infosetOutput,
+              rootName,
+              rootNamespace,
+              variables,
+              tunables
+            )
         ).onFinalize(
           infosetOutput match {
             case Debugee.LaunchArgs.InfosetOutput.File(path) =>
@@ -621,7 +687,18 @@ object Parse {
           }
         )
       case Debugee.LaunchArgs.TDMLConfig
-            .Execute(stopOnEntry, infosetFormat, infosetOutput, name, description, tdmlPath, variables, tunables) =>
+            .Execute(
+              stopOnEntry,
+              infosetFormat,
+              infosetOutput,
+              name,
+              description,
+              tdmlPath,
+              rootName,
+              rootNamespace,
+              variables,
+              tunables
+            ) =>
         // From a TDML file, create a LaunchArgs.Manual from the named test, run the debugee with it
         Resource.eval(IO(TDML.execute(name, description, tdmlPath))).flatMap {
           case None =>
@@ -631,7 +708,17 @@ object Parse {
           case Some((schemaPath, dataPath)) =>
             debugee(
               Debugee.LaunchArgs
-                .Manual(schemaPath, dataPath, stopOnEntry, infosetFormat, infosetOutput, variables, tunables)
+                .Manual(
+                  schemaPath,
+                  dataPath,
+                  stopOnEntry,
+                  infosetFormat,
+                  infosetOutput,
+                  rootName,
+                  rootNamespace,
+                  variables,
+                  tunables
+                )
             )
         }
     }
@@ -674,7 +761,18 @@ object Parse {
       debugger <- DaffodilDebugger
         .resource(state, events, breakpoints, control, infoset, args.infosetFormat)
       parse <- Resource.eval(
-        args.data.flatMap(in => Parse(args.schemaPath, in, debugger, args.infosetFormat, args.variables, args.tunables))
+        args.data.flatMap(in =>
+          Parse(
+            args.schemaPath,
+            in,
+            debugger,
+            args.infosetFormat,
+            args.rootName,
+            args.rootNamespace,
+            args.variables,
+            args.tunables
+          )
+        )
       )
 
       parsing = args.infosetOutput match {
@@ -1056,6 +1154,8 @@ object Parse {
           stopOnEntry: Boolean,
           infosetFormat: String,
           infosetOutput: InfosetOutput,
+          rootName: String,
+          rootNamespace: String,
           variables: Map[String, String],
           tunables: Map[String, String]
       ) extends LaunchArgs
@@ -1064,11 +1164,11 @@ object Parse {
       object TDMLConfig {
         def apply(that: Debugee.LaunchArgs.TDMLConfig): TDMLConfig =
           that match {
-            case Debugee.LaunchArgs.TDMLConfig.Generate(_, _, _, _, _, name, description, path, _, _) =>
+            case Debugee.LaunchArgs.TDMLConfig.Generate(_, _, _, _, _, name, description, path, _, _, _, _) =>
               TDMLConfig("generate", name, description, path)
-            case Debugee.LaunchArgs.TDMLConfig.Append(_, _, _, _, _, name, description, path, _, _) =>
+            case Debugee.LaunchArgs.TDMLConfig.Append(_, _, _, _, _, name, description, path, _, _, _, _) =>
               TDMLConfig("append", name, description, path)
-            case Debugee.LaunchArgs.TDMLConfig.Execute(_, _, _, name, description, path, _, _) =>
+            case Debugee.LaunchArgs.TDMLConfig.Execute(_, _, _, name, description, path, _, _, _, _) =>
               TDMLConfig("execute", name, description, path)
           }
       }
@@ -1102,13 +1202,25 @@ object Parse {
       ConfigEvent(
         launchArgs match {
           case Debugee.LaunchArgs
-                .Manual(schemaPath, dataPath, stopOnEntry, infosetFormat, infosetOutput, variables, tunables) =>
+                .Manual(
+                  schemaPath,
+                  dataPath,
+                  stopOnEntry,
+                  infosetFormat,
+                  infosetOutput,
+                  rootName,
+                  rootNamespace,
+                  variables,
+                  tunables
+                ) =>
             ConfigEvent.LaunchArgs.Manual(
               schemaPath.toString,
               dataPath.toString(),
               stopOnEntry,
               infosetFormat,
               InfosetOutput(infosetOutput),
+              rootName,
+              rootNamespace,
               variables,
               tunables
             )

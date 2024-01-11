@@ -26,6 +26,8 @@ export interface VSCodeLaunchConfigArgs {
   type: string
   schema: string | boolean
   data: string | boolean
+  rootName: string | null
+  rootNamespace: string | null
   debugServer: number | boolean
   infosetFormat: string | null
   infosetOutput: InfosetOutput | null
