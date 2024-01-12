@@ -74,8 +74,8 @@ object Parse {
       data: InputStream,
       debugger: Debugger,
       infosetFormat: String,
-      rootName: String,
-      rootNamespace: String,
+      rootName: Option[String],
+      rootNamespace: Option[String],
       variables: Map[String, String],
       tunables: Map[String, String]
   ): IO[Parse] =
@@ -206,8 +206,8 @@ object Parse {
           stopOnEntry: Boolean,
           infosetFormat: String,
           infosetOutput: LaunchArgs.InfosetOutput,
-          rootName: String,
-          rootNamespace: String,
+          rootName: Option[String],
+          rootNamespace: Option[String],
           variables: Map[String, String],
           tunables: Map[String, String]
       ) extends Arguments
@@ -236,8 +236,8 @@ object Parse {
             name: String,
             description: String,
             path: String,
-            rootName: String,
-            rootNamespace: String,
+            rootName: Option[String],
+            rootNamespace: Option[String],
             variables: Map[String, String],
             tunables: Map[String, String]
         ) extends TDMLConfig
@@ -251,8 +251,8 @@ object Parse {
             name: String,
             description: String,
             path: String,
-            rootName: String,
-            rootNamespace: String,
+            rootName: Option[String],
+            rootNamespace: Option[String],
             variables: Map[String, String],
             tunables: Map[String, String]
         ) extends TDMLConfig
@@ -264,8 +264,8 @@ object Parse {
             name: String,
             description: String,
             path: String,
-            rootName: String,
-            rootNamespace: String,
+            rootName: Option[String],
+            rootNamespace: Option[String],
             variables: Map[String, String],
             tunables: Map[String, String]
         ) extends TDMLConfig
@@ -497,22 +497,18 @@ object Parse {
     //
     // arguments: Launch config
     def parseRootName(arguments: JsonObject) =
-      Option(arguments.getAsJsonPrimitive("rootName"))
+      Right(Option(arguments.getAsJsonPrimitive("rootName"))
         .map(_.getAsString())
-        .getOrElse("")
-        .asRight[String]
-        .toEitherNel
+        ).toEitherNel
 
     // Parse the root namespae field from the launch config
     // Defaults to None
     //
     // arguments: Launch config
     def parseRootNamespace(arguments: JsonObject) =
-      Option(arguments.getAsJsonPrimitive("rootNamespace"))
+      Right(Option(arguments.getAsJsonPrimitive("rootNamespace"))
         .map(_.getAsString())
-        .getOrElse("")
-        .asRight[String]
-        .toEitherNel
+      ).toEitherNel
 
     // Parse the variables object from the launch config
     //
@@ -1154,8 +1150,8 @@ object Parse {
           stopOnEntry: Boolean,
           infosetFormat: String,
           infosetOutput: InfosetOutput,
-          rootName: String,
-          rootNamespace: String,
+          rootName: Option[String],
+          rootNamespace: Option[String],
           variables: Map[String, String],
           tunables: Map[String, String]
       ) extends LaunchArgs
