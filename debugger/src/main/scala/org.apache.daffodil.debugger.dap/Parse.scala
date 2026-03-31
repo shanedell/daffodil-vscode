@@ -1310,40 +1310,41 @@ object Parse {
                   .complete(()) *> nextContinue.get.as(true)
               case Running                                      => Running -> IO.pure(false)
               case s @ Stopped(whenContinued, nextAwaitStarted) =>
-                s -> nextAwaitStarted.complete(()) *>
-                  // Decide whether to block or let parser continue
-                  stopTarget.get.flatMap {
-                    case None                      => whenContinued.get.as(true)
-                    case Some((targetDepth, mode)) =>
-                      for {
-                        cur <- currentDepth.get
-                        kind <- awaitingKind.get
-                        res <- mode match {
-                          // Allow running while deeper than target.
-                          // When at or above target and we're at an end-element, block once then clear target
-                          case "stepOut" =>
-                            if (cur > targetDepth) IO.pure(false)
-                            else if (kind == "end") whenContinued.get.flatMap(_ => stopTarget.set(None).as(true))
-                            else IO.pure(false)
+                s -> stopTarget.get.flatMap {
+                  case None =>
+                    // No step target, pause immediately and signal that we've stopped
+                    nextAwaitStarted.complete(()).void *> whenContinued.get.as(true)
+                  case Some((targetDepth, mode)) =>
+                    for {
+                      cur <- currentDepth.get
+                      kind <- awaitingKind.get
+                      res <- mode match {
+                        // stepIn: Stop at the very next 'start' event, completely ignoring 'end' events
+                        case "stepIn" =>
+                          if (kind == "start")
+                            stopTarget.set(None) *> nextAwaitStarted.complete(()).void *> whenContinued.get.as(true)
+                          else IO.pure(false)
 
-                          // Allow running until we reach a deeper depth, then pause at the start-element and clear target
-                          case "stepOver" =>
-                            if (cur < targetDepth) IO.pure(false)
-                            else if (kind == "start") whenContinued.get.flatMap(_ => stopTarget.set(None).as(true))
-                            else IO.pure(false)
+                        // stepOver / stepOut: Run invisibly until we hit a 'start' event at the target depth or shallower
+                        case "stepOver" | "stepOut" =>
+                          if (kind == "start" && cur <= targetDepth)
+                            stopTarget.set(None) *> nextAwaitStarted.complete(()).void *> whenContinued.get.as(true)
+                          else
+                            IO.pure(false) // Ignore ALL 'end' events and any 'start' events deeper than our target
 
-                          // Block once and clear the stopTarget so subsequent awaits don't re-trigger
-                          case _ => whenContinued.get.flatMap(_ => stopTarget.set(None).as(true))
-                        }
-                      } yield res
-                  }
+                        // Block once and clear the stopTarget so subsequent awaits don't re-trigger
+                        case _ =>
+                          stopTarget.set(None) *> nextAwaitStarted.complete(()).void *> whenContinued.get.as(true)
+                      }
+                    } yield res
+                }
             }.flatten
           } yield awaited
 
         def performStep(stepType: String, addedDepth: Int): IO[Unit] =
           for {
             nextContinue <- Deferred[IO, Unit]
-            nextAwaitStarted <- Deferred[IO, Unit]
+            newAwaitStarted <- Deferred[IO, Unit]
             _ <- state.modify {
               case s @ AwaitingFirstAwait(waiterArrived) =>
                 s -> waiterArrived.get *> (stepType match {
@@ -1353,12 +1354,12 @@ object Parse {
                 })
               case Running                   => Running -> IO.unit
               case Stopped(whenContinued, _) =>
-                Stopped(nextContinue, nextAwaitStarted) -> (
+                Stopped(nextContinue, newAwaitStarted) -> (
                   for {
                     d <- currentDepth.get
                     _ <- stopTarget.set(Some((d + addedDepth, stepType)))
-                    _ <- whenContinued.complete(())
-                    _ <- nextAwaitStarted.get
+                    _ <- whenContinued.complete(()) // Unblock the parser to continue running invisibly
+                    _ <- newAwaitStarted.get // WAIT here until the parser hits the target 'start' event and stops
                   } yield ()
                 )
             }.flatten
@@ -1376,20 +1377,23 @@ object Parse {
           state.modify {
             case s @ AwaitingFirstAwait(waiterArrived) =>
               s -> waiterArrived.get *> continue()
-            case Running                   => Running -> IO.unit
-            case Stopped(whenContinued, _) =>
-              Running -> (stopTarget.set(None) *> whenContinued.complete(())).void // wake up await-ers
+            case Running                                  => Running -> IO.unit
+            case Stopped(whenContinued, nextAwaitStarted) =>
+              Running -> (stopTarget.set(None) *> nextAwaitStarted.complete(()).void *> whenContinued.complete(())).void
           }.flatten
 
         def pause(): IO[Unit] =
           for {
             nextContinue <- Deferred[IO, Unit]
-            nextAwaitStarted <- Deferred[IO, Unit]
-            _ <- state.update {
-              case Running               => Stopped(nextContinue, nextAwaitStarted)
-              case s: AwaitingFirstAwait => s
-              case s: Stopped            => s
-            }
+            newAwaitStarted <- Deferred[IO, Unit]
+            _ <- state.modify {
+              case Running =>
+                Stopped(nextContinue, newAwaitStarted) -> IO.unit
+              case s: AwaitingFirstAwait            => s -> IO.unit
+              case s @ Stopped(_, nextAwaitStarted) =>
+                // If we are hit by a breakpoint during a step, clear target and unblock performStep
+                s -> (stopTarget.set(None) *> nextAwaitStarted.complete(()).void)
+            }.flatten
           } yield ()
       }
   }
@@ -1423,7 +1427,7 @@ object Parse {
 
     override def startElement(pstate: PState, processor: Parser): Unit =
       dispatcher.unsafeRunSync {
-        // Generating the infoset requires a PState, not a StateForDebugger, so we can't generate it later from the Event.StartElement (which contains the StateForDebugger).
+        // Generating the infoset requires a PState, not a StateForDebugger...
         lazy val infoset = {
           var node = pstate.infoset
           while (node.diParent != null) node = node.diParent
@@ -1442,8 +1446,12 @@ object Parse {
                 var depth = 0
                 var n = node
                 while (n.diParent != null) {
-                  depth += 1
                   n = n.diParent
+
+                  // Only count actual elements and document root, ignore hidden DIArray wrappers
+                  if (n.isInstanceOf[DIElement] || n.isInstanceOf[DIDocument]) {
+                    depth += 1
+                  }
                 }
                 depth
               }
@@ -1489,8 +1497,11 @@ object Parse {
             var d = 0
             var n = node
             while (n.diParent != null) {
-              d += 1
               n = n.diParent
+              // Only count actual elements and document root, ignore hidden DIArray wrappers
+              if (n.isInstanceOf[DIElement] || n.isInstanceOf[DIDocument]) {
+                d += 1
+              }
             }
             d
           }
