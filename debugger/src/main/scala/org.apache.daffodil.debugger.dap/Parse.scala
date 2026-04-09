@@ -818,8 +818,13 @@ object Parse {
                 )
               _ <- data.send(newState.data)
             } yield newState
-          case (state, Parse.Event.EndElement(_)) => IO.pure(state.copy(data = state.data.pop()))
-          case (state, _: Parse.Event.Fini.type)  => IO.pure(state)
+          case (state, e: Parse.Event.EndElement) =>
+            val newState = state.copy(
+              data = state.data.pop(),
+              infoset = e.infoset // Update the state with the new infoset
+            )
+            data.send(newState.data).as(newState)
+          case (state, _: Parse.Event.Fini.type)                             => IO.pure(state)
           case (state, Event.Control(DAPodil.Debugee.State.Stopped(reason))) =>
             val events =
               List(
@@ -1092,7 +1097,7 @@ object Parse {
           infoset
         )
     }
-    case class EndElement(state: StateForDebugger) extends Event
+    case class EndElement(state: StateForDebugger, infoset: Option[InfosetEvent]) extends Event
     case object Fini extends Event
     case class Control(state: DAPodil.Debugee.State) extends Event
     case class Error(message: String) extends Events.DebugEvent("daffodil.parseError")
@@ -1255,7 +1260,8 @@ object Parse {
     /** Blocks if the current state is stopped, unblocking when a `step` or `continue` happens. Returns true if blocking
       * happened, false otherwise.
       */
-    def await(): IO[Boolean]
+    // def await(): IO[Boolean]
+    def await(onStop: IO[Unit] = IO.unit): IO[Boolean] // Add onStop here
 
     /** Update the control with the current element depth (set by the parser thread before awaiting). Depth is used to
       * implement step/stepOut semantics.
@@ -1300,20 +1306,22 @@ object Parse {
         awaitingKind <- Ref[IO].of[String]("")
         stopTarget <- Ref[IO].of[Option[(Int, String)]](None)
       } yield new Control {
-        def await(): IO[Boolean] =
+        def await(onStop: IO[Unit] = IO.unit): IO[Boolean] =
           for {
             nextContinue <- Deferred[IO, Unit]
             nextAwaitStarted <- Deferred[IO, Unit]
             awaited <- state.modify {
               case AwaitingFirstAwait(waiterArrived) =>
-                Stopped(nextContinue, nextAwaitStarted) -> waiterArrived
-                  .complete(()) *> nextContinue.get.as(true)
+                // Stopped(nextContinue, nextAwaitStarted) -> waiterArrived
+                //   .complete(()) *> nextContinue.get.as(true)
+                Stopped(nextContinue, nextAwaitStarted) -> (waiterArrived
+                  .complete(()) *> onStop *> nextAwaitStarted.complete(()).void *> nextContinue.get.as(true))
               case Running                                      => Running -> IO.pure(false)
               case s @ Stopped(whenContinued, nextAwaitStarted) =>
                 s -> stopTarget.get.flatMap {
                   case None =>
                     // No step target, pause immediately and signal that we've stopped
-                    nextAwaitStarted.complete(()).void *> whenContinued.get.as(true)
+                    onStop *> nextAwaitStarted.complete(()).void *> whenContinued.get.as(true)
                   case Some((targetDepth, mode)) =>
                     for {
                       cur <- currentDepth.get
@@ -1322,19 +1330,23 @@ object Parse {
                         // stepIn: Stop at the very next 'start' event, completely ignoring 'end' events
                         case "stepIn" =>
                           if (kind == "start")
-                            stopTarget.set(None) *> nextAwaitStarted.complete(()).void *> whenContinued.get.as(true)
+                            stopTarget.set(None) *> onStop *> nextAwaitStarted.complete(()).void *> whenContinued.get
+                              .as(true)
                           else IO.pure(false)
 
                         // stepOver / stepOut: Run invisibly until we hit a 'start' event at the target depth or shallower
                         case "stepOver" | "stepOut" =>
                           if (kind == "start" && cur <= targetDepth)
-                            stopTarget.set(None) *> nextAwaitStarted.complete(()).void *> whenContinued.get.as(true)
+                            stopTarget.set(None) *> onStop *> nextAwaitStarted.complete(()).void *> whenContinued.get
+                              .as(true)
                           else
                             IO.pure(false) // Ignore ALL 'end' events and any 'start' events deeper than our target
 
                         // Block once and clear the stopTarget so subsequent awaits don't re-trigger
                         case _ =>
-                          stopTarget.set(None) *> nextAwaitStarted.complete(()).void *> whenContinued.get.as(true)
+                          stopTarget.set(None) *> onStop *> nextAwaitStarted.complete(()).void *> whenContinued.get.as(
+                            true
+                          )
                       }
                     } yield res
                 }
@@ -1413,6 +1425,34 @@ object Parse {
   ) extends Debugger {
     implicit val logger: Logger[IO] = Slf4jLogger.getLogger
 
+    // Helper function to get the infoset
+    private def getFullInfoset(pstate: PState): Option[InfosetEvent] = {
+      var node = pstate.infoset
+      while (node.diParent != null) node = node.diParent
+      node match {
+        case d: DIDocument if d.numChildren == 0 => None
+        case _                                   => Some(InfosetEvent(infosetFormat, node))
+      }
+    }
+
+    // Helper function to calculate the current depth
+    private def calculateDepth(pstate: PState): Int =
+      Convert
+        .daffodilMaybeToOption(pstate.currentNode)
+        .map { node =>
+          var d = 0
+          var n = node
+          while (n.diParent != null) {
+            n = n.diParent
+            // Only count actual elements and document root, ignore hidden DIArray wrappers
+            if (n.isInstanceOf[DIElement] || n.isInstanceOf[DIDocument]) {
+              d += 1
+            }
+          }
+          d
+        }
+        .getOrElse(0)
+
     override def init(pstate: PState, processor: Parser): Unit =
       dispatcher.unsafeRunSync {
         events.send(Event.Init(pstate.copyStateForDebugger)).void
@@ -1427,45 +1467,17 @@ object Parse {
 
     override def startElement(pstate: PState, processor: Parser): Unit =
       dispatcher.unsafeRunSync {
-        // Generating the infoset requires a PState, not a StateForDebugger...
-        lazy val infoset = {
-          var node = pstate.infoset
-          while (node.diParent != null) node = node.diParent
-          node match {
-            case d: DIDocument if d.numChildren == 0 => None
-            case _                                   => Some(InfosetEvent(infosetFormat, node))
-          }
-        }
-
         for {
           _ <- logger.debug("pre-control await")
-          _ <- control.setCurrentDepth(
-            Convert
-              .daffodilMaybeToOption(pstate.currentNode)
-              .map { node =>
-                var depth = 0
-                var n = node
-                while (n.diParent != null) {
-                  n = n.diParent
-
-                  // Only count actual elements and document root, ignore hidden DIArray wrappers
-                  if (n.isInstanceOf[DIElement] || n.isInstanceOf[DIDocument]) {
-                    depth += 1
-                  }
-                }
-                depth
-              }
-              .getOrElse(0)
-          )
+          _ <- control.setCurrentDepth(calculateDepth(pstate))
           _ <- control.setAwaitingKind("start")
-          isStepping <- control.await()
+          isStepping <- control.await(
+            onStop = events.send(new Event.StartElement(pstate, getFullInfoset(pstate))).void
+          )
           _ <- logger.debug("post-control await")
           location = createLocation(pstate.schemaFileLocation)
           shouldBreak <- breakpoints.shouldBreak(location)
-          startElement =
-            if (isStepping || shouldBreak) new Event.StartElement(pstate, infoset)
-            else new Event.StartElement(pstate, None)
-          _ <- events.send(startElement)
+          _ <- events.send(new Event.StartElement(pstate, None)).unlessA(isStepping)
           _ <- onBreakpointHit(location).whenA(shouldBreak)
         } yield ()
       }
@@ -1491,26 +1503,16 @@ object Parse {
 
     override def endElement(pstate: PState, processor: Parser): Unit =
       dispatcher.unsafeRunSync {
-        val depth = Convert
-          .daffodilMaybeToOption(pstate.currentNode)
-          .map { node =>
-            var d = 0
-            var n = node
-            while (n.diParent != null) {
-              n = n.diParent
-              // Only count actual elements and document root, ignore hidden DIArray wrappers
-              if (n.isInstanceOf[DIElement] || n.isInstanceOf[DIDocument]) {
-                d += 1
-              }
-            }
-            d
-          }
-          .getOrElse(0)
-
-        control.setCurrentDepth(depth) *>
-          control.setAwaitingKind("end") *>
-          control.await() *>
-          events.send(Event.EndElement(pstate.copyStateForDebugger)).void
+        for {
+          _ <- logger.debug("pre-control await")
+          _ <- control.setCurrentDepth(calculateDepth(pstate))
+          _ <- control.setAwaitingKind("end")
+          isStepping <- control.await(
+            onStop = events.send(new Event.EndElement(pstate, getFullInfoset(pstate))).void
+          )
+          _ <- logger.debug("post-control await")
+          _ <- events.send(new Event.EndElement(pstate, None)).unlessA(isStepping)
+        } yield ()
       }
   }
 
